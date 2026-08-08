@@ -262,7 +262,22 @@ async fn get_reply(
                     op.as_str(),
                     b.as_str().parse::<u64>(),
                 ) {
-                    if let Some(result) = BigNumber::new_math(a, op, b) {
+                    if let Some(mut result) = BigNumber::new_math(a, op, b) {
+                        //simulate integer underflow if message contains zwj
+                        if op == "-" && text.contains("‍") {
+                            //zero width joiner
+                            if let BigNumber::SmallSigned(res, dur) = result {
+                                //doing it with shit over 0 will fuck stuff up differently methinks
+                                if res < 0 {
+                                    result = BigNumber::Small(
+                                        //effectively calculates u64::MAX + result but requires multiple
+                                        //steps to convert stuff
+                                        ((i64::MAX + res) as u64) + (u64::MAX - (i64::MAX as u64)),
+                                        dur,
+                                    );
+                                }
+                            }
+                        }
                         return Some(format!("{}{}{} = {}", a, op, b, result.to_string()));
                     }
                 }
