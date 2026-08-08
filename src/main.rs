@@ -1,7 +1,7 @@
 use chrono::Local;
 use dotenv::dotenv;
 use poise::serenity_prelude::{Mentionable, UserId};
-use poise::{CreateReply, Framework, serenity_prelude as serenity};
+use poise::{Framework, serenity_prelude as serenity};
 use rand::random;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -14,7 +14,7 @@ static IM_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"[iI]([mM]|'[mM]| [aA][mM]) (.*)").unwrap());
 static FACTORIAL_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"([0123456789]+)!").unwrap());
 static OTHER_MATH_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"([0123456789.]+)([-+*x^])([0123456789.]+)").unwrap());
+    LazyLock::new(|| Regex::new(r"([0123456789]+)([-+*x^])([0123456789]+)").unwrap());
 type Error = Box<dyn std::error::Error + Send + Sync>;
 type Context<'a> = poise::Context<'a, Data, Error>;
 
@@ -99,6 +99,28 @@ async fn setchances(
         Err("internal error while updating chance".into())
     }
 }
+#[poise::command(slash_command)]
+async fn factorial(
+    ctx: Context<'_>,
+    #[description = "the number to find the factorial of"] num: u64,
+) -> Result<(), Error> {
+    if let Some(answer) = BigNumber::new_factorial(num) {
+        ctx.reply(answer.to_string()).await;
+        Ok(())
+    } else {
+        Err("number must be between 0 and 1000000000".into())
+    }
+}
+#[poise::command(slash_command)]
+async fn power(
+    ctx: Context<'_>,
+    #[description = "base of the power"] base: u64,
+    #[description = "exponent"] exponent: u64,
+) -> Result<(), Error> {
+    let answer = BigNumber::new_pow(base, exponent);
+    ctx.reply(answer.to_string()).await;
+    Ok(())
+}
 enum BigNumber {
     Small(u64, Duration),
     Large(f64, f64, Duration),
@@ -156,6 +178,48 @@ impl BigNumber {
             _ => None,
         }
     }
+    fn new_multiply(a: u64, b: u64) -> BigNumber {
+        let start = Local::now();
+        let log_sum = (a as f64).log10() + (b as f64).log10();
+        if log_sum > 19f64 {
+            BigNumber::Large(
+                10f64.powf(log_sum.fract()),
+                log_sum.floor(),
+                Duration::from_secs_f64((Local::now() - start).as_seconds_f64()),
+            )
+        } else {
+            BigNumber::Small(
+                a * b,
+                Duration::from_secs_f64((Local::now() - start).as_seconds_f64()),
+            )
+        }
+    }
+    fn new_pow(a: u64, b: u64) -> BigNumber {
+        let start = Local::now();
+        let log_mult = (a as f64).log10() * b as f64;
+        if log_mult > 19f64 {
+            BigNumber::Large(
+                10f64.powf(log_mult.fract()),
+                log_mult.floor(),
+                Duration::from_secs_f64((Local::now() - start).as_seconds_f64()),
+            )
+        } else {
+            BigNumber::Small(
+                a.pow(b as u32),
+                Duration::from_secs_f64((Local::now() - start).as_seconds_f64()),
+            )
+        }
+    }
+    fn new_math(a: u64, op: &str, b: u64) -> Option<BigNumber> {
+        match op {
+            "+" => Some(BigNumber::Small(a + b, Duration::from_secs_f64(0f64))),
+            "-" => Some(BigNumber::Small(a - b, Duration::from_secs_f64(0f64))),
+            "*" => Some(BigNumber::new_multiply(a, b)),
+            "x" => Some(BigNumber::new_multiply(a, b)),
+            "^" => Some(BigNumber::new_pow(a, b)),
+            _ => None,
+        }
+    }
 }
 ///processes a message and returns a reply assuming that the message does not ping the bot
 #[allow(clippy::collapsible_if, unused)]
@@ -178,6 +242,21 @@ async fn get_reply(
                 if let Ok(num) = matched.as_str().parse::<u64>() {
                     if let Some(factorial) = BigNumber::new_factorial(num) {
                         return Some(format!("{}! = {}", num, factorial.to_string()));
+                    }
+                }
+            }
+        }
+        if let Some(captures) = OTHER_MATH_RE.captures(text) {
+            if let (Some(a), Some(op), Some(b)) =
+                (captures.get(1), captures.get(2), captures.get(3))
+            {
+                if let (Ok(a), op, Ok(b)) = (
+                    a.as_str().parse::<u64>(),
+                    op.as_str(),
+                    b.as_str().parse::<u64>(),
+                ) {
+                    if let Some(result) = BigNumber::new_math(a, op, b) {
+                        return Some(format!("{}{}{} = {}", a, op, b, result.to_string()));
                     }
                 }
             }
@@ -215,7 +294,7 @@ async fn main() {
     let intents = serenity::GatewayIntents::non_privileged();
     let framework: Framework<Data, Error> = poise::Framework::builder()
         .options(poise::FrameworkOptions {
-            commands: vec![setchances()],
+            commands: vec![setchances(), factorial(), power()],
             event_handler: |ctx, event, framework, data| {
                 Box::pin(async move {
                     let my_user_id = ctx.http.get_current_user().await?.id;
