@@ -123,12 +123,16 @@ async fn power(
 }
 enum BigNumber {
     Small(u64, Duration),
+    SmallSigned(i64, Duration),
     Large(f64, f64, Duration),
 }
 impl BigNumber {
     fn to_string(&self) -> String {
         match self {
             BigNumber::Small(num, time) => {
+                format!("{}\n-# calculated in {}s", num, time.as_secs_f64())
+            }
+            BigNumber::SmallSigned(num, time) => {
                 format!("{}\n-# calculated in {}s", num, time.as_secs_f64())
             }
             BigNumber::Large(mantissa, exponent, time) => format!(
@@ -213,7 +217,10 @@ impl BigNumber {
     fn new_math(a: u64, op: &str, b: u64) -> Option<BigNumber> {
         match op {
             "+" => Some(BigNumber::Small(a + b, Duration::from_secs_f64(0f64))),
-            "-" => Some(BigNumber::Small(a - b, Duration::from_secs_f64(0f64))),
+            "-" => Some(BigNumber::SmallSigned(
+                (a as i64) - (b as i64),
+                Duration::from_secs_f64(0f64),
+            )),
             "*" => Some(BigNumber::new_multiply(a, b)),
             "x" => Some(BigNumber::new_multiply(a, b)),
             "^" => Some(BigNumber::new_pow(a, b)),
