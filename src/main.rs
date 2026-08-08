@@ -1,9 +1,20 @@
+use chrono::Local;
 use dotenv::dotenv;
+use poise::serenity_prelude::{Mentionable, UserId};
 use poise::{Framework, serenity_prelude as serenity};
+use rand::random;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::sync::RwLock;
+use std::sync::{LazyLock, RwLock};
+use std::time::Duration;
 use std::{collections::HashMap, env};
+//match group 2 for the thing they said they are
+static IM_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"[iI]([mM]|'[mM]| [aA][mM]) (.*)").unwrap());
+static FACTORIAL_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"([0123456789]+)!").unwrap());
+static OTHER_MATH_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"([0123456789.]+)([-+*x^])([0123456789.]+)").unwrap());
 type Error = Box<dyn std::error::Error + Send + Sync>;
 type Context<'a> = poise::Context<'a, Data, Error>;
 
@@ -76,18 +87,168 @@ async fn setchances(
     ctx.data()
         .update_chances_for_user(ctx.author().id, new_chances, "config.json")
 }
+enum BigNumber {
+    Small(u64, Duration),
+    Large(f64, f64, Duration),
+}
+impl BigNumber {
+    fn to_string(&self) -> String {
+        match self {
+            BigNumber::Small(num, time) => {
+                format!("{}\n-# calculated in {}s", num, time.as_secs_f64())
+            }
+            BigNumber::Large(mantissa, exponent, time) => format!(
+                "{}x10^{}\n-# calculated in {}s",
+                mantissa,
+                exponent,
+                time.as_secs_f64()
+            ),
+        }
+    }
+    ///calculates factorial by multiplying integers, returns None if num>20 as that would cause a
+    ///u64 overflow, safe to unwrap if input <=20
+    fn new_small_factorial(num: u64) -> Option<BigNumber> {
+        if num == 0 {
+            return Some(BigNumber::Small(1, Duration::from_secs(0))); //it didnt take time trust
+        }
+        if num > 20 {
+            return None;
+        }
+        let start = Local::now();
+        let mut result = 1u64;
+        for i in 1..=num {
+            result *= i;
+        }
+        let dur = Local::now() - start;
+        Some(BigNumber::Small(
+            result,
+            Duration::from_secs_f64(dur.as_seconds_f64()), //fuck this shit
+        ))
+    }
+    fn new_large_factorial(num: u64) -> BigNumber {
+        let start = Local::now();
+        let mut sum = 0f64;
+        for i in 1..=num {
+            sum += (i as f64).log10();
+        }
+        BigNumber::Large(
+            10f64.powf(sum.fract()),
+            sum.floor(),
+            Duration::from_secs_f64((Local::now() - start).as_seconds_f64()), //fucking stupid
+        )
+    }
+    fn new_factorial(num: u64) -> Option<BigNumber> {
+        match num {
+            0..=20 => BigNumber::new_small_factorial(num),
+            21..=1_000_000_000 => Some(BigNumber::new_large_factorial(num)),
+            _ => None,
+        }
+    }
+}
+///processes a message and returns a reply assuming that the message does not ping the bot
+#[allow(clippy::collapsible_if, unused)]
+async fn get_reply(
+    text: &str,
+    user_id: UserId,
+    bot_mention: &str,
+    chances: UserChanceConfig,
+) -> Option<String> {
+    if random::<f32>() < chances.im_chance {
+        if let Some(captures) = IM_RE.captures(text) {
+            if let Some(matched) = captures.get(2) {
+                println!("responding with im");
+                return Some(format!("hi {} im {}", matched.as_str(), bot_mention));
+            }
+        }
+    }
+    if random::<f32>() < chances.math_chance {
+        if let Some(captures) = FACTORIAL_RE.captures(text) {
+            if let Some(matched) = captures.get(1) {
+                if let Ok(num) = matched.as_str().parse::<u64>() {
+                    if let Some(factorial) = BigNumber::new_factorial(num) {
+                        println!("responding with factorial");
+                        return Some(format!("{}! = {}", num, factorial.to_string()));
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+#[allow(clippy::collapsible_if, unused)]
+async fn get_reply_to_ping(
+    text: &str,
+    user_id: UserId,
+    bot_mention: &str,
+    chances: UserChanceConfig,
+) -> Option<String> {
+    if text.contains("is ") {
+        if text.contains("‍") {
+            //zero width joiner
+            return Some("nuh".to_string());
+        }
+        println!("responding with yeh");
+        return Some("yeh".to_string());
+    }
+    get_reply(text, user_id, bot_mention, chances).await
+}
 #[tokio::main]
+#[allow(clippy::collapsible_if, unused)]
 async fn main() {
     dotenv().expect("dotenv failed yo");
     let token = env::var("DISCORD_TOKEN").expect("environment variable DISCORD_TOKEN must be set");
 
     let config = fs::read_to_string("config.json").unwrap_or("{}".into());
-    let data: Data = serde_json::from_str(config.as_str()).expect("json failed yo");
+    let data: Data = Data {
+        chances: serde_json::from_str(config.as_str()).expect("json failed yo"),
+    };
 
     let intents = serenity::GatewayIntents::non_privileged();
     let framework: Framework<Data, Error> = poise::Framework::builder()
         .options(poise::FrameworkOptions {
-            commands: vec![],
+            commands: vec![setchances()],
+            event_handler: |ctx, event, framework, data| {
+                Box::pin(async move {
+                    let my_user_id = ctx.http.get_current_user().await?.id;
+                    if let serenity::FullEvent::Message { new_message } = event {
+                        if new_message.author.id == my_user_id {
+                            return Ok(());
+                        }
+                        println!("got message");
+                        if let Ok(true) = new_message.mentions_me(&ctx.http).await {
+                            if let Ok(chances) = data.get_chances_for_user(new_message.author.id) {
+                                println!("got chance");
+                                let reply = get_reply_to_ping(
+                                    &new_message.content,
+                                    new_message.author.id,
+                                    &my_user_id.mention().to_string(),
+                                    chances,
+                                )
+                                .await;
+                                if let Some(reply) = reply {
+                                    new_message.reply_ping(&ctx.http, reply).await;
+                                }
+                            }
+                        } else {
+                            if let Ok(chances) = data.get_chances_for_user(new_message.author.id) {
+                                println!("got chance");
+                                let reply = get_reply(
+                                    &new_message.content,
+                                    new_message.author.id,
+                                    &my_user_id.mention().to_string(),
+                                    chances,
+                                )
+                                .await;
+                                if let Some(reply) = reply {
+                                    new_message.reply_ping(&ctx.http, reply).await;
+                                }
+                            }
+                        }
+                    }
+
+                    Ok(())
+                })
+            },
             ..Default::default()
         })
         .setup(|ctx, _ready, framework| {
