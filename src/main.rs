@@ -1,7 +1,7 @@
 use chrono::Local;
 use dotenv::dotenv;
 use poise::serenity_prelude::{Mentionable, UserId};
-use poise::{Framework, serenity_prelude as serenity};
+use poise::{CreateReply, Framework, serenity_prelude as serenity};
 use rand::random;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -84,8 +84,20 @@ async fn setchances(
         im_chance: imchance,
         math_chance: mathchance,
     };
-    ctx.data()
+    if ctx
+        .data()
         .update_chances_for_user(ctx.author().id, new_chances, "config.json")
+        .is_ok()
+    {
+        ctx.reply(format!(
+            "new im chance:{}\nnew math chance:{}",
+            imchance, mathchance
+        ))
+        .await;
+        Ok(())
+    } else {
+        Err("internal error while updating chance".into())
+    }
 }
 enum BigNumber {
     Small(u64, Duration),
@@ -156,7 +168,6 @@ async fn get_reply(
     if random::<f32>() < chances.im_chance {
         if let Some(captures) = IM_RE.captures(text) {
             if let Some(matched) = captures.get(2) {
-                println!("responding with im");
                 return Some(format!("hi {} im {}", matched.as_str(), bot_mention));
             }
         }
@@ -166,7 +177,6 @@ async fn get_reply(
             if let Some(matched) = captures.get(1) {
                 if let Ok(num) = matched.as_str().parse::<u64>() {
                     if let Some(factorial) = BigNumber::new_factorial(num) {
-                        println!("responding with factorial");
                         return Some(format!("{}! = {}", num, factorial.to_string()));
                     }
                 }
@@ -187,7 +197,6 @@ async fn get_reply_to_ping(
             //zero width joiner
             return Some("nuh".to_string());
         }
-        println!("responding with yeh");
         return Some("yeh".to_string());
     }
     get_reply(text, user_id, bot_mention, chances).await
@@ -214,10 +223,8 @@ async fn main() {
                         if new_message.author.id == my_user_id {
                             return Ok(());
                         }
-                        println!("got message");
                         if let Ok(true) = new_message.mentions_me(&ctx.http).await {
                             if let Ok(chances) = data.get_chances_for_user(new_message.author.id) {
-                                println!("got chance");
                                 let reply = get_reply_to_ping(
                                     &new_message.content,
                                     new_message.author.id,
@@ -231,7 +238,6 @@ async fn main() {
                             }
                         } else {
                             if let Ok(chances) = data.get_chances_for_user(new_message.author.id) {
-                                println!("got chance");
                                 let reply = get_reply(
                                     &new_message.content,
                                     new_message.author.id,
