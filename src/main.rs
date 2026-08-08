@@ -291,7 +291,8 @@ async fn main() {
         chances: serde_json::from_str(config.as_str()).expect("json failed yo"),
     };
 
-    let intents = serenity::GatewayIntents::non_privileged();
+    let mut intents = serenity::GatewayIntents::non_privileged();
+    intents.insert(serenity::GatewayIntents::MESSAGE_CONTENT);
     let framework: Framework<Data, Error> = poise::Framework::builder()
         .options(poise::FrameworkOptions {
             commands: vec![setchances(), factorial(), power()],
