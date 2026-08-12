@@ -15,6 +15,8 @@ static IM_RE: LazyLock<Regex> =
 static FACTORIAL_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"([0123456789]+)!").unwrap());
 static OTHER_MATH_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"([0123456789]+)([-+*x^])([0123456789]+)").unwrap());
+static QUESTION_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(is |will |am |was |were |\?)").unwrap());
 type Error = Box<dyn std::error::Error + Send + Sync>;
 type Context<'a> = poise::Context<'a, Data, Error>;
 
@@ -293,7 +295,7 @@ async fn get_reply_to_ping(
     bot_mention: &str,
     chances: UserChanceConfig,
 ) -> Option<String> {
-    if text.contains("is ") {
+    if QUESTION_RE.is_match(text) {
         if text.contains("‍") {
             //zero width joiner
             return Some("nuh".to_string());
