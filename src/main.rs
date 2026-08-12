@@ -16,7 +16,7 @@ static FACTORIAL_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"([012345678
 static OTHER_MATH_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"([0123456789]+)([-+*x^])([0123456789]+)").unwrap());
 static QUESTION_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(is |will |am |was |were |\?)").unwrap());
+    LazyLock::new(|| Regex::new(r"(is |will |am |was |were |are |do |does |did |has |had |have |can |could |will |would |should |\?)").unwrap());
 type Error = Box<dyn std::error::Error + Send + Sync>;
 type Context<'a> = poise::Context<'a, Data, Error>;
 
