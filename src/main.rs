@@ -1,6 +1,6 @@
 use chrono::Local;
 use dotenv::dotenv;
-use poise::serenity_prelude::{Mentionable, UserId};
+use poise::serenity_prelude::{Mentionable, User, UserId};
 use poise::{Framework, serenity_prelude as serenity};
 use rand::random;
 use regex::Regex;
@@ -124,6 +124,12 @@ async fn power(
 ) -> Result<(), Error> {
     let answer = BigNumber::new_pow(base, exponent);
     ctx.reply(answer.to_string()).await;
+    Ok(())
+}
+#[poise::command(slash_command)]
+async fn ban(ctx: Context<'_>, #[description = "the user to ban"] user: User) -> Result<(), Error> {
+    ctx.reply(format!("successfully banned {}", user.mention()))
+        .await;
     Ok(())
 }
 enum BigNumber {

@@ -11,6 +11,7 @@ Gock is my silly discord bot, you can invite the official bot to your server [he
 "@gock is this true?" -> "yeh" - add a zero width joiner and it says "nuh" instead
 
 ":3" -> ":4"
+
 ### Math
 
 Send a basic math equation in chat and gock will tell you the answer
@@ -26,3 +27,5 @@ Uses a custom integer type when results are larger than a u64
 /factorial - calculate the factorial of a number
 
 /power - calculate a^b
+
+/ban - pretends to ban a user
