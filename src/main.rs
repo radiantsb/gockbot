@@ -1,10 +1,11 @@
 use chrono::Local;
 use dotenv::dotenv;
-use poise::serenity_prelude::{Mentionable, User, UserId};
+use poise::serenity_prelude::{Mentionable, User};
 use poise::{Framework, serenity_prelude as serenity};
 use rand::random;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::fs;
 use std::sync::{LazyLock, RwLock};
 use std::time::Duration;
@@ -35,22 +36,30 @@ struct Data {
 impl Data {
     ///writes chances to the specified path
     fn write_to_file(&self, file_name: &str) -> Result<(), Error> {
-        let guard = self.chances.read().expect("shits poisoned bro"); //fucking
-        //trait bounds mean i cant ? this shit
+        let guard = match self.chances.read() {
+            Ok(ok) => ok,
+            Err(_e) => {
+                return Err("internal error accessing chances (RwLock poisoned)".into());
+            }
+        };
         let json = serde_json::to_string(&*guard)?;
         fs::write(file_name, json)?;
         Ok(())
     }
     fn get_chances_for_user(&self, user_id: serenity::UserId) -> Result<UserChanceConfig, Error> {
-        let guard = self.chances.read().expect("shits poisoned bro"); //trait
-        //bounds go brrr
+        let guard = match self.chances.read() {
+            Ok(ok) => ok,
+            Err(_e) => {
+                return Err("internal error accessing chances (RwLock poisoned)".into());
+            }
+        };
         let chance = guard
             .get(&user_id.to_string())
             .unwrap_or(&UserChanceConfig {
                 im_chance: 1.0,
                 math_chance: 1.0,
             });
-        Ok(chance.clone())
+        Ok(*chance)
     }
     ///updates the chances for a user and then writes the new hashmap to the specified file, return
     ///type indicates if writing to file was successful
@@ -61,7 +70,12 @@ impl Data {
         file_name: &str,
     ) -> Result<(), Error> {
         {
-            let mut guard = self.chances.write().expect("shits poisoned bro"); //traits
+            let mut guard = match self.chances.write() {
+                Ok(ok) => ok,
+                Err(_e) => {
+                    return Err("internal error accessing chances (RwLock poisoned)".into());
+                }
+            };
             guard.insert(user_id.to_string(), new_chances);
         }
         self.write_to_file(file_name)
@@ -94,11 +108,12 @@ async fn setchances(
         .update_chances_for_user(ctx.author().id, new_chances, "config.json")
         .is_ok()
     {
-        ctx.reply(format!(
-            "new im chance:{}\nnew math chance:{}",
-            imchance, mathchance
-        ))
-        .await;
+        let _ = ctx
+            .reply(format!(
+                "new im chance:{}\nnew math chance:{}",
+                imchance, mathchance
+            ))
+            .await;
         Ok(())
     } else {
         Err("internal error while updating chance".into())
@@ -110,7 +125,7 @@ async fn factorial(
     #[description = "the number to find the factorial of"] num: u64,
 ) -> Result<(), Error> {
     if let Some(answer) = BigNumber::new_factorial(num) {
-        ctx.reply(answer.to_string()).await;
+        let _ = ctx.reply(answer.to_string()).await;
         Ok(())
     } else {
         Err("number must be between 0 and 1000000000".into())
@@ -123,12 +138,13 @@ async fn power(
     #[description = "exponent"] exponent: u64,
 ) -> Result<(), Error> {
     let answer = BigNumber::new_pow(base, exponent);
-    ctx.reply(answer.to_string()).await;
+    let _ = ctx.reply(answer.to_string()).await;
     Ok(())
 }
 #[poise::command(slash_command)]
 async fn ban(ctx: Context<'_>, #[description = "the user to ban"] user: User) -> Result<(), Error> {
-    ctx.reply(format!("successfully banned {}", user.mention()))
+    let _ = ctx
+        .reply(format!("successfully banned {}", user.mention()))
         .await;
     Ok(())
 }
@@ -137,23 +153,25 @@ enum BigNumber {
     SmallSigned(i64, Duration),
     Large(f64, f64, Duration),
 }
-impl BigNumber {
-    fn to_string(&self) -> String {
+impl fmt::Display for BigNumber {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             BigNumber::Small(num, time) => {
-                format!("{}\n-# calculated in {}s", num, time.as_secs_f64())
+                writeln!(f, "{}", num)?;
+                write!(f, "-# calculated in {}s", time.as_secs_f64())
             }
             BigNumber::SmallSigned(num, time) => {
-                format!("{}\n-# calculated in {}s", num, time.as_secs_f64())
+                writeln!(f, "{}", num)?;
+                write!(f, "-# calculated in {}s", time.as_secs_f64())
             }
-            BigNumber::Large(mantissa, exponent, time) => format!(
-                "{}x10^{}\n-# calculated in {}s",
-                mantissa,
-                exponent,
-                time.as_secs_f64()
-            ),
+            BigNumber::Large(mantissa, exponent, time) => {
+                writeln!(f, "{}x10^{}", mantissa, exponent)?;
+                write!(f, "-# calculated in {}s", time.as_secs_f64())
+            }
         }
     }
+}
+impl BigNumber {
     ///calculates factorial by multiplying integers, returns None if num>20 as that would cause a
     ///u64 overflow, safe to unwrap if input <=20
     fn new_small_factorial(num: u64) -> Option<BigNumber> {
@@ -240,73 +258,58 @@ impl BigNumber {
     }
 }
 ///processes a message and returns a reply assuming that the message does not ping the bot
-#[allow(clippy::collapsible_if, unused)]
-async fn get_reply(
-    text: &str,
-    user_id: UserId,
-    bot_mention: &str,
-    chances: UserChanceConfig,
-) -> Option<String> {
-    if random::<f32>() < chances.im_chance {
-        if let Some(captures) = IM_RE.captures(text) {
-            if let Some(matched) = captures.get(2) {
-                return Some(format!("hi {} im {}", matched.as_str(), bot_mention));
-            }
-        }
+async fn get_reply(text: &str, bot_mention: &str, chances: UserChanceConfig) -> Option<String> {
+    if random::<f32>() < chances.im_chance
+        && let Some(captures) = IM_RE.captures(text)
+        && let Some(matched) = captures.get(2)
+    {
+        return Some(format!("hi {} im {}", matched.as_str(), bot_mention));
     }
     if random::<f32>() < chances.math_chance {
-        if let Some(captures) = FACTORIAL_RE.captures(text) {
-            if let Some(matched) = captures.get(1) {
-                if let Ok(num) = matched.as_str().parse::<u64>() {
-                    if let Some(factorial) = BigNumber::new_factorial(num) {
-                        return Some(format!("{}! = {}", num, factorial.to_string()));
-                    }
-                }
-            }
+        if let Some(captures) = FACTORIAL_RE.captures(text)
+            && let Some(matched) = captures.get(1)
+            && let Ok(num) = matched.as_str().parse::<u64>()
+            && let Some(factorial) = BigNumber::new_factorial(num)
+        {
+            return Some(format!("{}! = {}", num, factorial));
         }
-        if let Some(captures) = OTHER_MATH_RE.captures(text) {
-            if let (Some(a), Some(op), Some(b)) =
+        if let Some(captures) = OTHER_MATH_RE.captures(text)
+            && let (Some(a), Some(op), Some(b)) =
                 (captures.get(1), captures.get(2), captures.get(3))
-            {
-                if let (Ok(a), op, Ok(b)) = (
-                    a.as_str().parse::<u64>(),
-                    op.as_str(),
-                    b.as_str().parse::<u64>(),
-                ) {
-                    if let Some(mut result) = BigNumber::new_math(a, op, b) {
-                        //simulate integer underflow if message contains zwj
-                        if op == "-" && text.contains("‍") {
-                            //zero width joiner
-                            if let BigNumber::SmallSigned(res, dur) = result {
-                                //doing it with shit over 0 will fuck stuff up differently methinks
-                                if res < 0 {
-                                    result = BigNumber::Small(
-                                        //effectively calculates u64::MAX + result but requires multiple
-                                        //steps to convert stuff
-                                        ((i64::MAX + res) as u64) + (u64::MAX - (i64::MAX as u64)),
-                                        dur,
-                                    );
-                                }
-                            }
-                        }
-                        return Some(format!("{}{}{} = {}", a, op, b, result.to_string()));
+            && let (Ok(a), op, Ok(b)) = (
+                a.as_str().parse::<u64>(),
+                op.as_str(),
+                b.as_str().parse::<u64>(),
+            )
+            && let Some(mut result) = BigNumber::new_math(a, op, b)
+        {
+            //simulate integer underflow if message contains zwj
+            if op == "-" && text.contains("‍") {
+                //zero width joiner
+                if let BigNumber::SmallSigned(res, dur) = result {
+                    //doing it with shit over 0 will fuck stuff up differently methinks
+                    if res < 0 {
+                        result = BigNumber::Small(
+                            //effectively calculates u64::MAX + result but requires multiple
+                            //steps to convert stuff
+                            ((i64::MAX + res) as u64) + (u64::MAX - (i64::MAX as u64)),
+                            dur,
+                        );
                     }
+                    return Some(format!("{}{}{} = {}", a, op, b, result));
                 }
             }
-        } else if let Some(captures) = INCREMENT_RE.captures(text) {
-            if let Some(num) = captures.get(1) {
-                if let Ok(mut num) = num.as_str().parse::<u64>() {
-                    return Some(format!(":{}", num + 1));
-                }
-            }
+        } else if let Some(captures) = INCREMENT_RE.captures(text)
+            && let Some(num) = captures.get(1)
+            && let Ok(num) = num.as_str().parse::<u64>()
+        {
+            return Some(format!(":{}", num + 1));
         }
     }
     None
 }
-#[allow(clippy::collapsible_if, unused)]
 async fn get_reply_to_ping(
     text: &str,
-    user_id: UserId,
     bot_mention: &str,
     chances: UserChanceConfig,
 ) -> Option<String> {
@@ -317,10 +320,9 @@ async fn get_reply_to_ping(
         }
         return Some("yeh".to_string());
     }
-    get_reply(text, user_id, bot_mention, chances).await
+    get_reply(text, bot_mention, chances).await
 }
 #[tokio::main]
-#[allow(clippy::collapsible_if, unused)]
 async fn main() {
     dotenv().expect("dotenv failed yo");
     let token = env::var("DISCORD_TOKEN").expect("environment variable DISCORD_TOKEN must be set");
@@ -335,7 +337,7 @@ async fn main() {
     let framework: Framework<Data, Error> = poise::Framework::builder()
         .options(poise::FrameworkOptions {
             commands: vec![setchances(), factorial(), power(), ban()],
-            event_handler: |ctx, event, framework, data| {
+            event_handler: |ctx, event, _framework, data| {
                 Box::pin(async move {
                     let my_user_id = ctx.http.get_current_user().await?.id;
                     if let serenity::FullEvent::Message { new_message } = event {
@@ -346,26 +348,24 @@ async fn main() {
                             if let Ok(chances) = data.get_chances_for_user(new_message.author.id) {
                                 let reply = get_reply_to_ping(
                                     &new_message.content,
-                                    new_message.author.id,
                                     &my_user_id.mention().to_string(),
                                     chances,
                                 )
                                 .await;
                                 if let Some(reply) = reply {
-                                    new_message.reply_ping(&ctx.http, reply).await;
+                                    let _ = new_message.reply_ping(&ctx.http, reply).await;
                                 }
                             }
                         } else {
                             if let Ok(chances) = data.get_chances_for_user(new_message.author.id) {
                                 let reply = get_reply(
                                     &new_message.content,
-                                    new_message.author.id,
                                     &my_user_id.mention().to_string(),
                                     chances,
                                 )
                                 .await;
                                 if let Some(reply) = reply {
-                                    new_message.reply_ping(&ctx.http, reply).await;
+                                    let _ = new_message.reply_ping(&ctx.http, reply).await;
                                 }
                             }
                         }
