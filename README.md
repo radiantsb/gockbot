@@ -10,6 +10,7 @@ Gock is my silly discord bot, you can invite the official bot to your server [he
 
 "@gock is this true?" -> "yeh" - add a zero width joiner and it says "nuh" instead
 
+":3" -> ":4"
 ### Math
 
 Send a basic math equation in chat and gock will tell you the answer
