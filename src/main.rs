@@ -334,7 +334,7 @@ async fn main() {
     intents.insert(serenity::GatewayIntents::MESSAGE_CONTENT);
     let framework: Framework<Data, Error> = poise::Framework::builder()
         .options(poise::FrameworkOptions {
-            commands: vec![setchances(), factorial(), power()],
+            commands: vec![setchances(), factorial(), power(), ban()],
             event_handler: |ctx, event, framework, data| {
                 Box::pin(async move {
                     let my_user_id = ctx.http.get_current_user().await?.id;
