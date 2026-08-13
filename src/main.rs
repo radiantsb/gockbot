@@ -15,8 +15,11 @@ static IM_RE: LazyLock<Regex> =
 static FACTORIAL_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"([0123456789]+)!").unwrap());
 static OTHER_MATH_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"([0123456789]+)([-+*x^])([0123456789]+)").unwrap());
-static QUESTION_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(is |will |am |was |were |are |do |does |did |has |had |have |can |could |will |would |should |\?)").unwrap());
+static QUESTION_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(is |will |am |was |were |are |do |does |did |has |had |have |can |could |will |would |should |\?)").unwrap()
+});
+//regex for responding :4 if someone says :3
+static INCREMENT_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r":([0-9]+)").unwrap());
 type Error = Box<dyn std::error::Error + Send + Sync>;
 type Context<'a> = poise::Context<'a, Data, Error>;
 
@@ -282,6 +285,12 @@ async fn get_reply(
                         }
                         return Some(format!("{}{}{} = {}", a, op, b, result.to_string()));
                     }
+                }
+            }
+        } else if let Some(captures) = INCREMENT_RE.captures(text) {
+            if let Some(num) = captures.get(1) {
+                if let Ok(mut num) = num.as_str().parse::<u64>() {
+                    return Some(format!(":{}", num + 1));
                 }
             }
         }
