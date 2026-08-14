@@ -20,7 +20,7 @@ static QUESTION_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(is |will |am |was |were |are |do |does |did |has |had |have |can |could |will |would |should |\?)").unwrap()
 });
 //regex for responding :4 if someone says :3
-static INCREMENT_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r":([0-9]+)").unwrap());
+static INCREMENT_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r":([0-9]+)(?:\s|$)").unwrap());
 type Error = Box<dyn std::error::Error + Send + Sync>;
 type Context<'a> = poise::Context<'a, Data, Error>;
 
