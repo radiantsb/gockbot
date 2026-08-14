@@ -13,9 +13,9 @@ use std::{collections::HashMap, env};
 //match group 2 for the thing they said they are
 static IM_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"[iI]([mM]|'[mM]| [aA][mM]) (.*)").unwrap());
-static FACTORIAL_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"([0123456789]+)!").unwrap());
+static FACTORIAL_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"([0-9]+)!").unwrap());
 static OTHER_MATH_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"([0123456789]+)([-+*x^])([0123456789]+)").unwrap());
+    LazyLock::new(|| Regex::new(r"([0-9]+)([-+*x^])([0-9]+)").unwrap());
 static QUESTION_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(is |will |am |was |were |are |do |does |did |has |had |have |can |could |will |would |should |\?)").unwrap()
 });
